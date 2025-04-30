@@ -8,6 +8,7 @@ from io import BytesIO
 from typing import Callable, Optional
 
 import aiohttp
+import jwt
 import pydantic
 import websockets
 from websockets.asyncio.client import ClientConnection
@@ -28,7 +29,7 @@ class GenAISession:
         self,
         ws_url: str = "ws://localhost:8080/ws",
         api_base_url: str = "http://localhost:8000",
-        auth_jwt: str = "",
+        jwt_token: str = "",
         api_key: str = "",
         log_level: int = logging.INFO
     ) -> None:
@@ -38,13 +39,13 @@ class GenAISession:
         Args:
             ws_url: WebSocket server URL, main bus for Agents communication.
             api_base_url: REST API base URL, to interact with Backend API.
-            auth_jwt: Optional JWT token for authorization.
+            jwt_token: Optional JWT token for authorization.
             api_key: Optional API key for authorization.
             log_level: Logging level (e.g., logging.DEBUG, logging.INFO).
         """
         self.ws_url = ws_url
         self.api_base_url = api_base_url
-        self.jwt = auth_jwt
+        self.jwt_token = jwt_token
         self.api_key = api_key
         self.agent: Optional[Agent] = None
         self._session_id: str = ""
@@ -65,8 +66,8 @@ class GenAISession:
     def headers(self) -> dict:
         """Returns authorization headers based on JWT or API key."""
         headers = {}
-        if self.jwt:
-            headers["X-Custom-Authorization"] = self.jwt
+        if self.jwt_token:
+            headers["X-Custom-Authorization"] = self.agent_uuid
         if self.api_key:
             headers["API-KEY"] = self.api_key
         return headers
@@ -88,9 +89,19 @@ class GenAISession:
         self._session_id = value
 
     @property
+    def agent_uuid(self) -> str:
+        """Returns the agent UUID."""
+        decoded = jwt.decode(
+            self.jwt_token,
+            options={"verify_signature": False},
+            algorithms=["HS256"]
+        )
+        return decoded.get("sub")
+
+    @property
     def agent_id(self) -> str:
         """Returns the current agent ID (JWT or API key)."""
-        return self.jwt or self.api_key
+        return self.agent_uuid or self.api_key
 
     def bind(self, name: Optional[str] = None, description: Optional[str] = None) -> Callable:
         """
@@ -117,7 +128,7 @@ class GenAISession:
             if description:
                 function_schema["function"]["description"] = description
 
-            function_schema["function"]["name"] = self.jwt  # Name it by agent ID
+            function_schema["function"]["name"] = self.agent_uuid  # Name it by agent ID
 
             self.agent = Agent(
                 handler=func,
@@ -141,7 +152,26 @@ class GenAISession:
             List of agent metadata dictionaries.
         """
         url = f"{self.api_base_url}/api/agents"
-        async with aiohttp.ClientSession() as session:
+        headers = {
+            "Authorization": f"Bearer {self.jwt_token}"
+        }
+        async with aiohttp.ClientSession(headers=headers) as session:
+            async with session.get(url) as response:
+                response.raise_for_status()
+                return await response.json()
+
+    async def get_my_active_agents(self) -> list[dict]:
+        """
+        Fetches the list of previously registered agents from the API.
+
+        Returns:
+            List of agent metadata dictionaries.
+        """
+        url = f"{self.api_base_url}/api/agents/active"
+        headers = {
+            "Authorization": f"Bearer {self.jwt_token}"
+        }
+        async with aiohttp.ClientSession(headers=headers) as session:
             async with session.get(url) as response:
                 response.raise_for_status()
                 return await response.json()
@@ -215,7 +245,8 @@ class GenAISession:
             agent_context = GenAIContext(
                 agent_uuid=self.agent_id,
                 websocket=ws,
-                api_base_url=self.api_base_url
+                api_base_url=self.api_base_url,
+                jwt_token=self.jwt_token
             )
 
             init_message = json.dumps({
