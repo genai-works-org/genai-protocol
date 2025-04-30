@@ -16,10 +16,11 @@ class GenAIContext:
         api_base_url (str): Base URL of the backend API.
     """
 
-    def __init__(self, agent_uuid: str, websocket: ClientConnection, api_base_url: str):
+    def __init__(self, agent_uuid: str, jwt_token: str, websocket: ClientConnection, api_base_url: str):
         self.agent_uuid = agent_uuid
         self.websocket = websocket
         self.api_base_url = api_base_url
+        self.jwt_token = jwt_token
         self._request_id = ""
         self._session_id = ""
 
@@ -66,4 +67,5 @@ class GenAIContext:
             api_base_url=self.api_base_url,
             request_id=self.request_id,
             session_id=self.session_id,
+            jwt_token=self.jwt_token
         )

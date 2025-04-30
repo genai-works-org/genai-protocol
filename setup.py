@@ -5,7 +5,7 @@ with open("README.md", "r") as f:
 
 setup(
     name="genai-protocol",
-    version="1.0.0",
+    version="1.0.1",
     description="GenAI Python project for agents connector library that integrates with GenAI infrastructure",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -31,7 +31,8 @@ setup(
         "typing-extensions>=4.13.0",
         "typing-inspection>=0.4.0",
         "websockets>=15.0.1",
-        "yarl>=1.18.3"
+        "yarl>=1.18.3",
+        "pyjwt>=2.10.1",
     ],
     extras_require={
         "dev": ["twine>=6.1.0"],
