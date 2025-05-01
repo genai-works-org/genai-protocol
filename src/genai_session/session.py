@@ -67,7 +67,7 @@ class GenAISession:
         """Returns authorization headers based on JWT or API key."""
         headers = {}
         if self.jwt_token:
-            headers["X-Custom-Authorization"] = self.agent_uuid
+            headers["X-Custom-Authorization"] = self.jwt_token
         if self.api_key:
             headers["API-KEY"] = self.api_key
         return headers
@@ -91,12 +91,15 @@ class GenAISession:
     @property
     def agent_uuid(self) -> str:
         """Returns the agent UUID."""
-        decoded = jwt.decode(
-            self.jwt_token,
-            options={"verify_signature": False},
-            algorithms=["HS256"]
-        )
-        return decoded.get("sub")
+        try:
+            decoded = jwt.decode(
+                self.jwt_token,
+                options={"verify_signature": False},
+                algorithms=["HS256"]
+            )
+            return decoded.get("sub")
+        except jwt.exceptions.DecodeError:
+            return
 
     @property
     def agent_id(self) -> str:
@@ -180,7 +183,6 @@ class GenAISession:
         self,
         message: dict,
         client_id: str,
-        headers: dict = None,
         close_timeout: int = None
     ) -> AgentResponse:
         """
@@ -195,7 +197,7 @@ class GenAISession:
         Returns:
             AgentResponse object containing the result or error.
         """
-        headers = headers or {"X-Custom-Authorization": f"{self.agent_id}:{client_id}"}
+        headers = {"x-custom-invoke-key": f"{self.agent_id}:{client_id}"}
 
         async with websockets.connect(self.ws_url, additional_headers=headers) as ws:
             init_message = json.dumps({
@@ -214,7 +216,7 @@ class GenAISession:
 
             while True:
                 try:
-                    msg = await asyncio.wait_for(ws.recv(), timeout=close_timeout) if close_timeout else await ws.recv()
+                    msg = await asyncio.wait_for(ws.recv(), timeout=close_timeout) if close_timeout else await ws.recv()  # noqa: E501
                 except asyncio.TimeoutError:
                     return AgentResponse(is_success=False, execution_time=0, response="Request timed out")
 
@@ -259,7 +261,6 @@ class GenAISession:
             })
 
             await ws.send(init_message)
-
             while True:
                 msg = await ws.recv()
                 body = json.loads(msg)
