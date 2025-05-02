@@ -5,7 +5,7 @@ with open("README.md", "r") as f:
 
 setup(
     name="genai-protocol",
-    version="1.0.2",
+    version="1.0.3",
     description="GenAI Python project for agents connector library that integrates with GenAI infrastructure",
     long_description=long_description,
     long_description_content_type="text/markdown",
