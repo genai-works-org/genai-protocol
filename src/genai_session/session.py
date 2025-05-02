@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import logging
 import time
@@ -15,6 +16,7 @@ from websockets.asyncio.client import ClientConnection
 
 from genai_session.utils.agents import Agent, AgentResponse
 from genai_session.utils.context import GenAIContext
+from genai_session.utils.exceptions import BaseAIAgentException
 from genai_session.utils.function_annotation import convert_to_openai_schema
 from genai_session.utils.naming_enums import WSMessageType, ERROR_TYPE_EXCEPTIONS_MAPPING
 
@@ -51,6 +53,7 @@ class GenAISession:
         self._session_id: str = ""
         self._request_id: str = ""
         self._send_lock = asyncio.Lock()
+        self._shutdown_event = asyncio.Event()
 
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         self.logger.setLevel(log_level)
@@ -261,17 +264,31 @@ class GenAISession:
             })
 
             await ws.send(init_message)
-            while True:
-                msg = await ws.recv()
-                body = json.loads(msg)
-                asyncio.create_task(
-                    self._handle_agent_request(
-                        agent_context=agent_context,
-                        ws=ws,
-                        body=body,
-                        send_logs=send_logs
-                    )
-                )
+
+            async def receive_messages():
+                try:
+                    while True:
+                        msg = await ws.recv()
+                        body = json.loads(msg)
+                        task = asyncio.create_task(self._handle_agent_request(agent_context, ws, body, send_logs))
+                        task.add_done_callback(self._handle_task_result)
+                except asyncio.CancelledError:
+                    pass
+
+            self._shutdown_event.clear()
+            listener_task = asyncio.create_task(receive_messages())
+
+            await self._shutdown_event.wait()
+            listener_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await listener_task
+
+    def _handle_task_result(self, task: asyncio.Task):
+        try:
+            task.result()
+        except BaseAIAgentException as e:
+            self.logger.error(f"Agent encountered an error and will exit: {e}")
+            self._shutdown_event.set()
 
     async def _handle_agent_request(
         self,
