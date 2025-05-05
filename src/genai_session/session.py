@@ -16,7 +16,7 @@ from websockets.asyncio.client import ClientConnection
 
 from genai_session.utils.agents import Agent, AgentResponse
 from genai_session.utils.context import GenAIContext
-from genai_session.utils.exceptions import BaseAIAgentException
+from genai_session.utils.exceptions import BaseAIAgentException, RouterInaccessibleException
 from genai_session.utils.function_annotation import convert_to_openai_schema
 from genai_session.utils.naming_enums import WSMessageType, ERROR_TYPE_EXCEPTIONS_MAPPING
 
@@ -246,43 +246,48 @@ class GenAISession:
         Args:
             send_logs: Whether to log requests and responses.
         """
-        async with websockets.connect(self.ws_url, additional_headers=self.headers) as ws:
-            agent_context = GenAIContext(
-                agent_uuid=self.agent_id,
-                websocket=ws,
-                api_base_url=self.api_base_url,
-                jwt_token=self.jwt_token
-            )
+        try:
+            async with websockets.connect(self.ws_url, additional_headers=self.headers) as ws:
+                agent_context = GenAIContext(
+                    agent_uuid=self.agent_id,
+                    websocket=ws,
+                    api_base_url=self.api_base_url,
+                    jwt_token=self.jwt_token
+                )
 
-            init_message = json.dumps({
-                "message_type": WSMessageType.AGENT_REGISTER.value,
-                "request_payload": {
-                    "agent_name": self.agent.name,
-                    "agent_description": self.agent.description,
-                    "agent_input_schema": self.agent.input_schema,
-                }
-            })
+                init_message = json.dumps({
+                    "message_type": WSMessageType.AGENT_REGISTER.value,
+                    "request_payload": {
+                        "agent_name": self.agent.name,
+                        "agent_description": self.agent.description,
+                        "agent_input_schema": self.agent.input_schema,
+                    }
+                })
 
-            await ws.send(init_message)
+                await ws.send(init_message)
 
-            async def receive_messages():
-                try:
-                    while True:
-                        msg = await ws.recv()
-                        body = json.loads(msg)
-                        task = asyncio.create_task(self._handle_agent_request(agent_context, ws, body, send_logs))
-                        task.add_done_callback(self._handle_task_result)
-                except asyncio.CancelledError:
-                    pass
+                async def receive_messages():
+                    try:
+                        while True:
+                            msg = await ws.recv()
+                            body = json.loads(msg)
+                            task = asyncio.create_task(self._handle_agent_request(agent_context, ws, body, send_logs))
+                            task.add_done_callback(self._handle_task_result)
+                    except asyncio.CancelledError:
+                        pass
+                    except websockets.exceptions.ConnectionClosedError:
+                        raise RouterInaccessibleException("Router service has disconnected. Please make sure it is running and accepting websocket messages")  # noqa: E501
 
-            self._shutdown_event.clear()
-            listener_task = asyncio.create_task(receive_messages())
+                self._shutdown_event.clear()
+                listener_task = asyncio.create_task(receive_messages())
 
-            await self._shutdown_event.wait()
-            listener_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await listener_task
-
+                await self._shutdown_event.wait()
+                listener_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await listener_task
+        except websockets.exceptions.ConnectionClosedError:
+            raise RouterInaccessibleException("Router service is not accessible. Please make sure it is running and accepting websocket messages")  # noqa: E501
+    
     def _handle_task_result(self, task: asyncio.Task):
         try:
             task.result()

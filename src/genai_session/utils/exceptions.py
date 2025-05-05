@@ -41,3 +41,8 @@ class AgentNotActiveException(BaseAIAgentException):
 class IncorrectFileInputException(BaseAIAgentException):
     """Exception raised when the file input is incorrect."""
     pass
+
+
+class RouterInaccessibleException(BaseAIAgentException):
+    """Exception raised when `router` service has disconnected"""
+    pass
