@@ -285,9 +285,9 @@ class GenAISession:
                 listener_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await listener_task
-        except websockets.exceptions.ConnectionClosedError:
+        except (websockets.exceptions.ConnectionClosedError, ConnectionRefusedError):
             raise RouterInaccessibleException("Router service is not accessible. Please make sure it is running and accepting websocket messages")  # noqa: E501
-    
+
     def _handle_task_result(self, task: asyncio.Task):
         try:
             task.result()

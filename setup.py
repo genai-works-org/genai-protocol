@@ -2,9 +2,9 @@ from setuptools import setup, find_packages
 
 setup(
     name="genai-protocol",
-    version="1.0.5",
+    version="1.0.6",
     description="GenAI Python project for agents connector library that integrates with GenAI infrastructure",
-    long_description=open('README.md', encoding='utf-8').read(),
+    long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
     author="Yaroslav Oliinyk, Valentyn Slivko, Ivan Kuzlo",
     author_email="yaroslav.oliinyk@chisw.com, valentyn.slivko@chisw.com, ivan.kuzlo@chisw.com",
@@ -35,10 +35,11 @@ setup(
         "dev": ["twine>=6.1.0"],
     },
     classifiers=[
+        "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: 3.12",
         "License :: OSI Approved :: Apache Software License",
         "Operating System :: OS Independent",
     ],
-    python_requires=">=3.11",
+    python_requires=">=3.10",
 )
