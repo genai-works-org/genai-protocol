@@ -1,26 +1,26 @@
 # GenAI Agent Protocol
 
-## This is an async-first Python framework for building WebSocket-based AI agents that can:
+## GenAI Agent Protocol is an async‑first Python framework for building WebSocket‑based AI agents that let you: 
 
-* Connect Agent to GenAI ecosystem
+* Connect an agent to the GenAI.works ecosystem 
 * Process messages via registered handler functions
 * Upload and retrieve files with contextual metadata (`agent_context`)
 * Log messages with contextual metadata (`agent_context`)
 
 ## ✨ Features
 
-* 🧠 Agent Binding: Decorator-based agent registration
-* 🪝 WebSocket Communication: Bidirectional messaging with a central server
-* 📁 File Manager: Async file upload/download & metadata fetch
-* 🪵 Context Logger: Structured, contextual WebSocket-based logging
-* 🔎 OpenAI Schema Conversion: Automatically converts Pydantic-type function signatures to OpenAI-compatible schemas
-* 📞 Agents invoke from Agent: Call other agents from within an agent
+🧠 Agent Binding: Decorator-based agent registration\
+🪝 WebSocket Communication: Bidirectional messaging with a central server\
+📁 File Manager: Async file upload/download & metadata fetch\
+🪵 Context Logger: Structured, contextual WebSocket-based logging\
+🔎 OpenAI Schema Conversion: Automatically converts Pydantic-type function signatures to OpenAI-compatible schemas\
+📞 Agent‑to‑agent calls: invoke another registered agent from within your handler
 
 ## 📚 Core Concepts
 
 **GenAISession**
 
-Central controller that registers agents and manages event lifecycle.
+A central controller that registers agents and manages the event lifecycle. 
 ```python
 from genai_session.session import GenAISession
 

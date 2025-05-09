@@ -2,8 +2,8 @@ from setuptools import setup, find_packages
 
 setup(
     name="genai-protocol",
-    version="1.0.6",
-    description="GenAI Python project for agents connector library that integrates with GenAI infrastructure",
+    version="1.0.7",
+    description="A universal agents connector library that integrates with GenAI.works infrastructure",
     long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
     author="Yaroslav Oliinyk, Valentyn Slivko, Ivan Kuzlo",
