@@ -2,12 +2,12 @@ from setuptools import setup, find_packages
 
 setup(
     name="genai-protocol",
-    version="1.0.8",
+    version="1.0.9",
     description="A universal agents connector library that integrates with GenAI.works infrastructure",
     long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
     author="Yaroslav Oliinyk, Valentyn Slivko, Ivan Kuzlo, Pavlo Shyrinskykh",
-    author_email="yaroslav.oliinyk@chisw.com, valentyn.slivko@chisw.com, ivan.kuzlo@chisw.com, pavlo.shyrinskykh@genai.works",
+    author_email="pavlo.shyrinskykh@genai.works",
     url="https://github.com/genai-works-org/genai-protocol",
     readme="README.md",
     package_dir={"": "src"},
