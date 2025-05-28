@@ -15,7 +15,7 @@ class ContextLogger:
 
     def __init__(
             self,
-            agent_uuid: str,
+            agent_alias: str,
             request_id: str,
             session_id: str,
             websocket: ClientConnection
@@ -24,12 +24,12 @@ class ContextLogger:
         Initialize the logger with context and WebSocket connection.
 
         Args:
-            agent_uuid (str): Unique ID of the AI agent.
+            agent_alias (str): Unique ID of the AI agent.
             request_id (str): Request identifier for tracking logs.
             session_id (str): Session identifier to group related logs.
             websocket (ClientConnection): WebSocket connection to send logs to.
         """
-        self.agent_uuid = agent_uuid
+        self.agent_alias = agent_alias
         self.websocket = websocket
         self.request_id = request_id
         self.session_id = session_id
@@ -47,7 +47,7 @@ class ContextLogger:
                 "message_type": WSMessageType.AGENT_LOG.value,
                 "log_message": self._convert_message(message),
                 "log_level": log_level,
-                "agent_uuid": self.agent_uuid,
+                "agent_alias": self.agent_alias,
                 "request_id": self.request_id,
                 "session_id": self.session_id,
             })

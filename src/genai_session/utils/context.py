@@ -11,13 +11,13 @@ class GenAIContext:
     logging capabilities, and file handling APIs.
 
     Attributes:
-        agent_uuid (str): Unique identifier for the agent.
+        agent_alias (str): Unique identifier for the agent.
         websocket (ClientConnection): The WebSocket connection used for communication.
         api_base_url (str): Base URL of the backend API.
     """
 
-    def __init__(self, agent_uuid: str, jwt_token: str, websocket: ClientConnection, api_base_url: str):
-        self.agent_uuid = agent_uuid
+    def __init__(self, agent_alias: str, jwt_token: str, websocket: ClientConnection, api_base_url: str):
+        self.agent_alias = agent_alias
         self.websocket = websocket
         self.api_base_url = api_base_url
         self.jwt_token = jwt_token
@@ -51,7 +51,7 @@ class GenAIContext:
         request ID, session ID, and websocket reference for logging.
         """
         return ContextLogger(
-            agent_uuid=self.agent_uuid,
+            agent_alias=self.agent_alias,
             request_id=self.request_id,
             session_id=self.session_id,
             websocket=self.websocket,

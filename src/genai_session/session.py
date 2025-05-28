@@ -29,10 +29,9 @@ class GenAISession:
 
     def __init__(
         self,
+        jwt_token: str,
         ws_url: str = "ws://localhost:8080/ws",
         api_base_url: str = "http://localhost:8000",
-        jwt_token: str = "",
-        api_key: str = "",
         log_level: int = logging.INFO
     ) -> None:
         """
@@ -41,14 +40,12 @@ class GenAISession:
         Args:
             ws_url: WebSocket server URL, main bus for Agents communication.
             api_base_url: REST API base URL, to interact with Backend API.
-            jwt_token: Optional JWT token for authorization.
-            api_key: Optional API key for authorization.
+            jwt_token: JWT token for authorization.
             log_level: Logging level (e.g., logging.DEBUG, logging.INFO).
         """
         self.ws_url = ws_url
         self.api_base_url = api_base_url
         self.jwt_token = jwt_token
-        self.api_key = api_key
         self.agent: Optional[Agent] = None
         self._session_id: str = ""
         self._request_id: str = ""
@@ -71,8 +68,6 @@ class GenAISession:
         headers = {}
         if self.jwt_token:
             headers["X-Custom-Authorization"] = self.jwt_token
-        if self.api_key:
-            headers["API-KEY"] = self.api_key
         return headers
 
     @property
@@ -92,22 +87,15 @@ class GenAISession:
         self._session_id = value
 
     @property
-    def agent_uuid(self) -> str:
+    def agent_alias(self) -> str:
         """Returns the agent UUID."""
-        try:
-            decoded = jwt.decode(
-                self.jwt_token,
-                options={"verify_signature": False},
-                algorithms=["HS256"]
-            )
-            return decoded.get("sub")
-        except jwt.exceptions.DecodeError:
-            return
+        decoded = jwt.decode(
+            self.jwt_token,
+            options={"verify_signature": False},
+            algorithms=["HS256"]
+        )
+        return decoded.get("sub")
 
-    @property
-    def agent_id(self) -> str:
-        """Returns the current agent ID (JWT or API key)."""
-        return self.agent_uuid or self.api_key
 
     def bind(self, name: Optional[str] = None, description: Optional[str] = None) -> Callable:
         """
@@ -134,7 +122,7 @@ class GenAISession:
             if description:
                 function_schema["function"]["description"] = description
 
-            function_schema["function"]["name"] = self.agent_uuid  # Name it by agent ID
+            function_schema["function"]["name"] = self.agent_alias
 
             self.agent = Agent(
                 handler=func,
@@ -185,7 +173,7 @@ class GenAISession:
     async def send(
         self,
         message: dict,
-        client_id: str,
+        agent_alias: str,
         close_timeout: int = None
     ) -> AgentResponse:
         """
@@ -193,19 +181,18 @@ class GenAISession:
 
         Args:
             message: The message dictionary to send.
-            client_id: The target agent/client UUID.
-            headers: Optional HTTP headers.
+            agent_alias: The target agent alias.
             close_timeout: Optional timeout for waiting for a response.
 
         Returns:
             AgentResponse object containing the result or error.
         """
-        headers = {"x-custom-invoke-key": f"{self.agent_id}:{client_id}"}
+        headers = {"x-custom-invoke-key": f"{self.agent_alias}:{agent_alias}"}
 
         async with websockets.connect(self.ws_url, additional_headers=headers) as ws:
             init_message = json.dumps({
                 "message_type": WSMessageType.AGENT_INVOKE.value,
-                "agent_uuid": client_id,
+                "agent_alias": agent_alias,
                 "request_payload": {**message},
                 "request_metadata": {
                     "request_id": self.request_id,
@@ -213,7 +200,7 @@ class GenAISession:
                 }
             })
 
-            self.logger.debug(f"Sending message to: {client_id}")
+            self.logger.debug(f"Sending message to: {agent_alias}")
             self.logger.debug(f"Message: {message}")
             await ws.send(init_message)
 
@@ -249,7 +236,7 @@ class GenAISession:
         try:
             async with websockets.connect(self.ws_url, additional_headers=self.headers) as ws:
                 agent_context = GenAIContext(
-                    agent_uuid=self.agent_id,
+                    agent_alias=self.agent_alias,
                     websocket=ws,
                     api_base_url=self.api_base_url,
                     jwt_token=self.jwt_token

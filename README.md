@@ -95,7 +95,7 @@ async def reverse_name(agent_context: GenAIContext, name: str) -> str:
 **Invoke Agent from Agent**
 
 You can invoke another agent from within an agent using the `genai_session.send` method.\
-This method takes the `agent_uuid` and `params` as arguments.
+This method takes the `agent_alias` and `params` as arguments.
 ```python
 from genai_session.session import GenAISession
 from genai_session.utils.context import GenAIContext
@@ -107,7 +107,7 @@ genai_session = GenAISession(jwt_token="<jwt received from GenAI CLI>")
 async def invoke_another_agent(agent_context: GenAIContext, name: dict) -> str:
     """Agent invokes another registered agent"""
     agent_response: AgentResponse = await genai_session.send(
-        agent_uuid="agent_uuid", # you can get UUID from - await agent_context.get_my_agents()
+        agent_alias="agent_alias", # you can get Alias from - await agent_context.get_my_agents()
         params={
             "username": name,
             "interests": ["python", "genai"],
