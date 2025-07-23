@@ -2,10 +2,11 @@ import inspect
 from types import UnionType, NoneType
 from typing import Annotated, Any, Literal, Optional, get_origin, get_args, Union
 
-from genai_session.utils.exceptions import MissingContextParameterException
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
+
+from genai_session.utils.exceptions import MissingContextParameterException
 
 
 def convert_type(annotation) -> dict:

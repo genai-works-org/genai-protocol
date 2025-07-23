@@ -18,17 +18,35 @@
 
 ## 📚 Core Concepts
 
+## ⚙️ Environment Variables Setup
+
+Before you run the **GenAI Agent Protocol**, make sure to configure the necessary environment variables.
+
+You can do this by creating a `.env` file in your project root or exporting them directly in your terminal session.
+
+### Required:
+
+```bash
+AGENT_JWT_TOKEN="<your JWT token from GenAI CLI or UI>"
+```
+
+### Defaults (you can override if needed):
+
+```bash
+ROUTER_WS_URL=ws://localhost:8080/ws           # WebSocket router URL
+BACKEND_API_BASE_URL=http://localhost:8000     # Backend API URL
+IS_LOCAL_SETUP=true                            # Flag to indicate local development
+```
+
+If your agent logic requires additional environment variables, just add them to the `.env` file or terminal session the same way.
+
 **GenAISession**
 
 A central controller that registers agents and manages the event lifecycle. 
 ```python
 from genai_session.session import GenAISession
 
-genai_session = GenAISession(
-    jwt_token="<jwt received from GenAI CLI>",
-    ws_url="<Router Container Public URL>", # Note if exposing infrastructure with ngrok
-    api_base_url="<Backend Container Public URL>", # Note if exposing infrastructure with ngrok
-)
+genai_session = GenAISession()
 ```
 
 **@bind(...)**
@@ -38,9 +56,9 @@ Registers a handler function with the session and make them visible to GenAI inf
 from genai_session.session import GenAISession
 from genai_session.utils.context import GenAIContext
 
-genai_session = GenAISession(jwt_token="<jwt received from GenAI CLI>")
+genai_session = GenAISession()
 
-@genai_session.bind(name="Test Name", description="Test Description")
+@genai_session.bind(name="test_name", description="Test Description")
 async def message_handler(agent_context: GenAIContext, parameter: str) -> str:
     ...
 ```
@@ -52,9 +70,9 @@ Provides contextual info (agent_uuid, request_id, etc.), a logger, and access to
 from genai_session.session import GenAISession
 from genai_session.utils.context import GenAIContext
 
-genai_session = GenAISession(jwt_token="<jwt received from GenAI CLI>")
+genai_session = GenAISession()
 
-@genai_session.bind(name="Test Name", description="Test Description")
+@genai_session.bind(name="test_name", description="Test Description")
 async def message_handler(agent_context: GenAIContext, parameter: str) -> str:
     request_id = agent_context.request_id
 ```
@@ -66,7 +84,7 @@ Handles file uploads (save) and retrievals (get_by_id, get_metadata_by_id).
 from genai_session.session import GenAISession
 from genai_session.utils.context import GenAIContext
 
-genai_session = GenAISession(jwt_token="<jwt received from GenAI CLI>")
+genai_session = GenAISession()
 
 @genai_session.bind(name="txt_content_reader_agent", description="Agent returns txt file content")
 async def get_file_content(agent_context: GenAIContext, file_id: str) -> str:
@@ -82,7 +100,7 @@ Sends JSON logs through WebSocket with severity levels (debug, info, warning, er
 from genai_session.session import GenAISession
 from genai_session.utils.context import GenAIContext
 
-genai_session = GenAISession(jwt_token="<jwt received from GenAI CLI>")
+genai_session = GenAISession()
 
 @genai_session.bind()
 async def reverse_name(agent_context: GenAIContext, name: str) -> str:
@@ -94,20 +112,20 @@ async def reverse_name(agent_context: GenAIContext, name: str) -> str:
 
 **Invoke Agent from Agent**
 
-You can invoke another agent from within an agent using the `genai_session.send` method.\
+You can invoke another agent from within an agent using the `genai_session.send` method (this method is working ONLY in IS_LOCAL_SETUP=true).\
 This method takes the `agent_uuid` and `params` as arguments.
 ```python
 from genai_session.session import GenAISession
 from genai_session.utils.context import GenAIContext
 from genai_session.utils.agents import AgentResponse
 
-genai_session = GenAISession(jwt_token="<jwt received from GenAI CLI>")
+genai_session = GenAISession()
 
 @genai_session.bind()
 async def invoke_another_agent(agent_context: GenAIContext, name: dict) -> str:
     """Agent invokes another registered agent"""
     agent_response: AgentResponse = await genai_session.send(
-        agent_uuid="agent_uuid", # you can get UUID from - await agent_context.get_my_agents()
+        agent_uuid="agent_uuid", # you can get UUID from - await agent_context.get_agents()
         params={
             "username": name,
             "interests": ["python", "genai"],
@@ -119,18 +137,54 @@ async def invoke_another_agent(agent_context: GenAIContext, name: dict) -> str:
     ...
 ```
 
+**External environment variables example**
+```python
+import asyncio
+import os
+from typing import Any, Annotated
+
+import requests
+
+from genai_session.session import GenAISession
+
+session = GenAISession()
+
+BASE_URL = os.environ.get("BASE_WEATHER_API_URL")
+API_KEY = os.environ.get("WEATHER_API_KEY")
+
+@session.bind(name="get_weather_agent", description="Get weather forecast data")
+async def get_weather(
+        agent_context, city_name: Annotated[str, "City name to get weather forecast for"],
+        date: Annotated[str, "Date to get forecast for in yyyy-MM-dd format"]
+) -> dict[str, Any]:
+
+    agent_context.logger.info("Inside get_translation")
+    params = {"q": city_name, "dt": date, "key": API_KEY}
+    response = requests.get(BASE_URL, params=params)
+
+    return {"weather_forecast": response.json()["forecast"]["forecastday"][0]["day"]}
+
+async def main():
+    await session.process_events()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+
 ## 📝 Function annotation examples
 
 **No parameters**
 ```python
-@genai_session.bind(name="GetCurrentDate", description="Return current date")
+@genai_session.bind(name="get_current_date", description="Return current date")
 async def get_current_date(agent_context: GenAIContext):
     ...
 ```
 
 **Built-in types**
 ```python
-@genai_session.bind(name="Saver", description="Saves file")
+@genai_session.bind(name="file_saver", description="Saves file")
 async def file_saver(
     agent_context: GenAIContext,
     filename: str,
@@ -152,7 +206,7 @@ class TranslationInput(BaseModel):
     language: str = Field(..., description="Code of the language to translate to (e.g. 'fr', 'es')")
     banned_words: List[str] = Field(..., description="List of words to be banned from translation")
 
-@genai_session.bind(name="TranslationAgent", description="Translate the text into specified language")
+@genai_session.bind(name="translation_agent", description="Translate the text into specified language")
 async def get_translation(
     agent_context: GenAIContext,
     params: TranslationInput
@@ -163,11 +217,11 @@ async def get_translation(
     ...
 ```
 
-**typing Annotations**
+**`typing` Annotations**
 ```python
 from typing import Any, Annotated
 
-@genai_session.bind(name="TranslationAgent", description="Translate the text into specified language")
+@genai_session.bind(name="translation_agent", description="Translate the text into specified language")
 async def get_translation(
     agent_context: GenAIContext, 
     text: Annotated[str, "Text to translate"],
@@ -176,3 +230,19 @@ async def get_translation(
 ) -> dict[str, Any]:
     ...
 ```
+
+## 🚀 Running the Event Loop
+
+Start your agent's event loop:
+
+```python
+async def main():
+    await genai_session.process_events()
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
+```
+
+## 📂 Example Agents
+You can find fully working agent examples in the [GenAI Agentos GitHub Repository](https://github.com/genai-works-org/genai-agentos/tree/main/genai_agents_example).

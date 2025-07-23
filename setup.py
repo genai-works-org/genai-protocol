@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="genai-protocol",
-    version="1.0.9",
+    version="2.0.0",
     description="A universal agents connector library that integrates with GenAI.works infrastructure",
     long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
@@ -30,6 +30,7 @@ setup(
         "websockets>=15.0.1",
         "yarl>=1.18.3",
         "pyjwt>=2.10.1",
+        "python-dotenv>=1.1.1"
     ],
     extras_require={
         "dev": ["twine>=6.1.0"],

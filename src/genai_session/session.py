@@ -1,55 +1,58 @@
 import asyncio
 import contextlib
+import inspect
 import json
 import logging
+import os
 import time
 import traceback
 from functools import wraps
 from io import BytesIO
+from pathlib import Path
 from typing import Callable, Optional
 
 import aiohttp
 import jwt
 import pydantic
 import websockets
+from dotenv import load_dotenv
 from websockets.asyncio.client import ClientConnection
+from websockets.exceptions import WebSocketException, ConnectionClosedError, ConnectionClosedOK
 
 from genai_session.utils.agents import Agent, AgentResponse
 from genai_session.utils.context import GenAIContext
 from genai_session.utils.exceptions import BaseAIAgentException, RouterInaccessibleException
 from genai_session.utils.function_annotation import convert_to_openai_schema
+from genai_session.utils.logging_manager import ContextLogger
 from genai_session.utils.naming_enums import WSMessageType, ERROR_TYPE_EXCEPTIONS_MAPPING
 
 
 class GenAISession:
     """
     Manages WebSocket communication and agent lifecycle for GenAI-based functions.
-    Handles sending and receiving messages, registering agents, and invoking functions.
+
+    This class handles:
+    - Agent registration
+    - Function binding with OpenAI-compatible schemas
+    - Message sending and receiving via WebSocket
+    - Synchronous and asynchronous function invocation
+    - Session and request metadata tracking
     """
 
-    def __init__(
-        self,
-        ws_url: str = "ws://localhost:8080/ws",
-        api_base_url: str = "http://localhost:8000",
-        jwt_token: str = "",
-        api_key: str = "",
-        log_level: int = logging.INFO
-    ) -> None:
-        """
-        Initializes the GenAISession with WebSocket and API connection details.
+    def __init__(self, log_level: int = logging.INFO) -> None:
 
-        Args:
-            ws_url: WebSocket server URL, main bus for Agents communication.
-            api_base_url: REST API base URL, to interact with Backend API.
-            jwt_token: Optional JWT token for authorization.
-            api_key: Optional API key for authorization.
-            log_level: Logging level (e.g., logging.DEBUG, logging.INFO).
-        """
-        self.ws_url = ws_url
-        self.api_base_url = api_base_url
-        self.jwt_token = jwt_token
-        self.api_key = api_key
+        caller_frame = inspect.stack()[1]
+        caller_path = Path(caller_frame.filename).resolve()
+        env_path = caller_path.parent / ".env"
+        load_dotenv(dotenv_path=env_path)
+
+        self.is_local_setup = os.environ.get("IS_LOCAL_SETUP", "true").lower() == "true"
+
         self.agent: Optional[Agent] = None
+        self.jwt_token = os.environ.get("AGENT_JWT_TOKEN", "")
+        self.ws_url = os.environ.get("ROUTER_WS_URL", "ws://localhost:8080/ws")
+        self.api_base_url = os.environ.get("BACKEND_API_BASE_URL", "http://localhost:8000").rstrip("/")
+
         self._session_id: str = ""
         self._request_id: str = ""
         self._send_lock = asyncio.Lock()
@@ -67,16 +70,25 @@ class GenAISession:
 
     @property
     def headers(self) -> dict:
-        """Returns authorization headers based on JWT or API key."""
+        """
+        Constructs authorization headers based on the JWT token.
+
+        Returns:
+            dict: A dictionary containing authorization headers.
+        """
         headers = {}
         if self.jwt_token:
             headers["X-Custom-Authorization"] = self.jwt_token
-        if self.api_key:
-            headers["API-KEY"] = self.api_key
         return headers
 
     @property
     def request_id(self) -> str:
+        """
+        Returns the current request ID.
+
+        Returns:
+            str: The request identifier.
+        """
         return self._request_id
 
     @request_id.setter
@@ -85,6 +97,12 @@ class GenAISession:
 
     @property
     def session_id(self) -> str:
+        """
+        Returns the current session ID.
+
+        Returns:
+            str: The session identifier.
+        """
         return self._session_id
 
     @session_id.setter
@@ -93,7 +111,12 @@ class GenAISession:
 
     @property
     def agent_uuid(self) -> str:
-        """Returns the agent UUID."""
+        """
+        Extracts and returns the agent UUID from the JWT token.
+
+        Returns:
+            str: The agent UUID or empty string if decoding fails.
+        """
         try:
             decoded = jwt.decode(
                 self.jwt_token,
@@ -102,26 +125,24 @@ class GenAISession:
             )
             return decoded.get("sub")
         except jwt.exceptions.DecodeError:
-            return
-
-    @property
-    def agent_id(self) -> str:
-        """Returns the current agent ID (JWT or API key)."""
-        return self.agent_uuid or self.api_key
+            return ""
 
     def bind(self, name: Optional[str] = None, description: Optional[str] = None) -> Callable:
         """
-        Decorator to bind a Python function to an AI agent with an OpenAI-compatible schema.
+        Binds a Python function to a GenAI agent with OpenAI-compatible schema.
 
         Args:
-            name: Optional custom agent name, default is function name.
-            description: Optional custom agent description, default is function docstring.
+            name (Optional[str]): Custom agent name (defaults to function name).
+            description (Optional[str]): Custom agent description (defaults to function docstring).
+
+        Returns:
+            Callable: The wrapped function, ready to be executed by the agent.
         """
 
         def decorator(func: Callable) -> Callable:
             function_schema = convert_to_openai_schema(func)
             function_description = function_schema.get("function", {}).get("description", "")
-            function_name = function_schema.get("function", {}).get("description", "")
+            function_name = function_schema.get("function", {}).get("name", "")
 
             @wraps(func)
             async def async_wrapper(*args, **kwargs):
@@ -134,7 +155,7 @@ class GenAISession:
             if description:
                 function_schema["function"]["description"] = description
 
-            function_schema["function"]["name"] = self.agent_uuid  # Name it by agent ID
+            function_schema["function"]["name"] = self.agent_uuid if self.is_local_setup else (name or function_name)
 
             self.agent = Agent(
                 handler=func,
@@ -150,14 +171,27 @@ class GenAISession:
 
         return decorator
 
-    async def get_my_agents(self) -> list[dict]:
+    def get_agent_metadata(self) -> dict:
         """
-        Fetches the list of previously registered agents from the API.
+        Returns metadata about the currently registered agent.
 
         Returns:
-            List of agent metadata dictionaries.
+            dict: Dictionary containing name, description, and input schema.
         """
-        url = f"{self.api_base_url}/api/agents"
+        return {
+            "name": self.agent.name,
+            "description": self.agent.description,
+            "input_schema": self.agent.input_schema,
+        }
+
+    async def get_agents(self) -> list[dict]:
+        """
+        Retrieves all agents registered with the backend.
+
+        Returns:
+            list[dict]: A list of agent metadata dictionaries.
+        """
+        url = f"{self.api_base_url}/api/agents/frontend"
         headers = {
             "Authorization": f"Bearer {self.jwt_token}"
         }
@@ -166,46 +200,52 @@ class GenAISession:
                 response.raise_for_status()
                 return await response.json()
 
-    async def get_my_active_agents(self) -> list[dict]:
+    async def get_active_agents(self) -> list[dict]:
         """
-        Fetches the list of previously registered agents from the API.
+        Retrieves only the active agents from the backend.
 
         Returns:
-            List of agent metadata dictionaries.
+            list[dict]: A list of active agent metadata dictionaries.
         """
-        url = f"{self.api_base_url}/api/agents/active"
+        url = f"{self.api_base_url}/api/agents/frontend"
         headers = {
             "Authorization": f"Bearer {self.jwt_token}"
         }
         async with aiohttp.ClientSession(headers=headers) as session:
-            async with session.get(url) as response:
+            async with session.get(url, params={"is_active": True}) as response:
                 response.raise_for_status()
                 return await response.json()
 
     async def send(
         self,
         message: dict,
-        client_id: str,
+        agent_uuid: str,
         close_timeout: int = None
     ) -> AgentResponse:
         """
-        Sends a request to a remote agent via WebSocket and waits for a response.
+        Sends a message to a specific agent over WebSocket and waits for a response.
 
         Args:
-            message: The message dictionary to send.
-            client_id: The target agent/client UUID.
-            headers: Optional HTTP headers.
-            close_timeout: Optional timeout for waiting for a response.
+            message (dict): Payload to be sent to the agent.
+            agent_uuid (str): Target agent's UUID.
+            close_timeout (int, optional): Timeout in seconds to wait for the response.
 
         Returns:
-            AgentResponse object containing the result or error.
+            AgentResponse: Contains success flag, execution time, and response/error.
         """
-        headers = {"x-custom-invoke-key": f"{self.agent_id}:{client_id}"}
+        if not self.is_local_setup:
+            return AgentResponse(
+                is_success=True,
+                execution_time=0,
+                response="'send' method is not available in remote setup."
+            )
+
+        headers = {"x-custom-invoke-key": f"{self.agent_uuid}:{agent_uuid}"}
 
         async with websockets.connect(self.ws_url, additional_headers=headers) as ws:
             init_message = json.dumps({
                 "message_type": WSMessageType.AGENT_INVOKE.value,
-                "agent_uuid": client_id,
+                "agent_uuid": agent_uuid,
                 "request_payload": {**message},
                 "request_metadata": {
                     "request_id": self.request_id,
@@ -213,7 +253,7 @@ class GenAISession:
                 }
             })
 
-            self.logger.debug(f"Sending message to: {client_id}")
+            self.logger.debug(f"Sending message to: {agent_uuid}")
             self.logger.debug(f"Message: {message}")
             await ws.send(init_message)
 
@@ -239,17 +279,59 @@ class GenAISession:
                             response=body.get("error", {}).get("error_message", "")
                         )
 
-    async def process_events(self, send_logs: bool = True) -> None:
+    def sync_invoke(self, request_id="", session_id="", request_payload: dict = None) -> dict:
         """
-        Starts a long-running process to receive and handle agent requests from the WebSocket server.
+        Synchronously invokes the bound agent function in a blocking context.
 
         Args:
-            send_logs: Whether to log requests and responses.
+            request_id (str): The request identifier.
+            session_id (str): The session identifier.
+            request_payload (dict): The input payload for the function.
+
+        Returns:
+            dict: The result of the function invocation.
+        """
+        request_payload = request_payload or {}
+
+        agent_context = GenAIContext(
+            agent_uuid=self.agent_uuid,
+            api_base_url=self.api_base_url,
+            jwt_token=self.jwt_token
+        )
+
+        agent_context.request_id = request_id
+        agent_context.session_id = session_id
+
+        agent_context.logger = ContextLogger(
+            agent_uuid=agent_context.agent_uuid,
+            request_id=agent_context.request_id,
+            session_id=agent_context.session_id,
+        )
+
+        async def wrapper():
+            return await self.agent.handler(agent_context=agent_context, **request_payload)
+
+        result = asyncio.run(wrapper())
+
+        logs = self.get_agent_logs(agent_context, request_id)
+
+        return {
+            "response": result,
+            "logs": logs,
+            "metadata": {
+                "request_id": request_id,
+                "session_id": session_id,
+            }
+        }
+
+    async def process_events(self) -> None:
+        """
+        Starts an event loop that listens for WebSocket messages and routes them to the agent handler.
         """
         try:
             async with websockets.connect(self.ws_url, additional_headers=self.headers) as ws:
                 agent_context = GenAIContext(
-                    agent_uuid=self.agent_id,
+                    agent_uuid=self.agent_uuid,
                     websocket=ws,
                     api_base_url=self.api_base_url,
                     jwt_token=self.jwt_token
@@ -271,12 +353,16 @@ class GenAISession:
                         while True:
                             msg = await ws.recv()
                             body = json.loads(msg)
-                            task = asyncio.create_task(self._handle_agent_request(agent_context, ws, body, send_logs))
+                            task = asyncio.create_task(self._handle_agent_request(agent_context, ws, body))
                             task.add_done_callback(self._handle_task_result)
+                    except (ConnectionClosedError, ConnectionClosedOK):
+                        self.logger.error(f"WebSocket disconnected, the router service is not accessible")
+                        self._shutdown_event.set()
                     except asyncio.CancelledError:
                         pass
-                    except websockets.exceptions.ConnectionClosedError:
-                        raise RouterInaccessibleException("Router service has disconnected. Please make sure it is running and accepting websocket messages")  # noqa: E501
+                    except Exception as e:
+                        self.logger.exception(f"Unexpected error occurred: {e}")
+                        self._shutdown_event.set()
 
                 self._shutdown_event.clear()
                 listener_task = asyncio.create_task(receive_messages())
@@ -285,10 +371,19 @@ class GenAISession:
                 listener_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await listener_task
-        except (websockets.exceptions.ConnectionClosedError, ConnectionRefusedError):
-            raise RouterInaccessibleException("Router service is not accessible. Please make sure it is running and accepting websocket messages")  # noqa: E501
+
+        except (WebSocketException, ConnectionRefusedError, OSError) as e:
+            self.logger.error(f"Failed to connect to WebSocket server: {e}")
+            self._shutdown_event.set()
+            raise RouterInaccessibleException("Router service is not accessible.")
 
     def _handle_task_result(self, task: asyncio.Task):
+        """
+        Internal callback to handle exceptions raised in async agent request tasks.
+
+        Args:
+            task (asyncio.Task): The async task whose result is being handled.
+        """
         try:
             task.result()
         except BaseAIAgentException as e:
@@ -300,16 +395,14 @@ class GenAISession:
         agent_context: GenAIContext,
         ws: ClientConnection,
         body: dict,
-        send_logs: bool = True
     ):
         """
         Internal method to process a single agent request message.
 
         Args:
-            agent_context: The context object for the current agent session.
-            ws: WebSocket connection object.
-            body: Incoming WebSocket message body.
-            send_logs: Whether to log the request and response.
+            agent_context (GenAIContext): Context for current agent execution.
+            ws (ClientConnection): Active WebSocket connection to the router.
+            body (dict): Payload of the request message.
         """
         request_payload = body.get("request_payload", {})
         request_metadata = body.get("request_metadata", {})
@@ -328,13 +421,25 @@ class GenAISession:
             setattr(agent_context, attr, value)
             setattr(self, attr, value)
 
+        agent_context.logger = ContextLogger(
+            agent_uuid=agent_context.agent_uuid,
+            request_id=agent_context.request_id,
+            session_id=agent_context.session_id,
+            websocket=ws,
+            invoked_by=invoked_by
+        )
+
+        agent_context.invoked_by = invoked_by
+
         try:
             start_time = time.perf_counter()
 
-            if send_logs:
-                logging_data = {"invoked_by": invoked_by, "request_payload": request_payload}
-                agent_context.logger.info(logging_data)
-                self.logger.debug(logging_data)
+            logging_data = {
+                "request_payload": request_payload,
+                "is_start_execution": True
+            }
+            agent_context.logger.info(logging_data)
+            self.logger.debug(logging_data)
 
             # Call the bound function
             result = await self.agent.handler(agent_context=agent_context, **request_payload)
@@ -342,10 +447,13 @@ class GenAISession:
             end_time = time.perf_counter()
             execution_time = end_time - start_time
 
-            if send_logs:
-                logging_data = {"execution_time": execution_time, "response": result}
-                agent_context.logger.info(logging_data)
-                self.logger.debug(logging_data)
+            logging_data = {
+                "execution_time": execution_time,
+                "response": result,
+                "is_start_execution": False
+            }
+            agent_context.logger.info(logging_data)
+            self.logger.debug(logging_data)
 
             # Format result
             if isinstance(result, pydantic.BaseModel):
@@ -360,8 +468,7 @@ class GenAISession:
                 response = {"response": result}
 
         except Exception as e:
-            if send_logs:
-                agent_context.logger.critical(traceback.format_exc())
+            agent_context.logger.critical(traceback.format_exc())
             response = {
                 "message_type": WSMessageType.AGENT_ERROR.value,
                 "error": {
@@ -373,6 +480,8 @@ class GenAISession:
 
         response["execution_time"] = execution_time
         response["invoked_by"] = invoked_by
+
+        await agent_context.logger.flush_logs()
 
         # Send response back over WebSocket
         async with self._send_lock:
@@ -388,9 +497,18 @@ class GenAISession:
                     }
                 })
 
-                if send_logs:
-                    agent_context.logger.critical(traceback.format_exc())
-                    self.logger.error("Failed to send response. Invalid data type.")
-                    self.logger.error(e)
+                agent_context.logger.critical(traceback.format_exc())
+                self.logger.error("Failed to send response. Invalid data type.")
+                self.logger.error(e)
 
             await ws.send(response)
+
+    @staticmethod
+    def get_agent_logs(agent_context: GenAIContext, request_id: str) -> list[dict]:
+        return [
+            {
+                "level": data[0],
+                "message": data[-1]
+            }
+            for data in agent_context.logger.pending_log_tasks.get(request_id, [])
+        ]
