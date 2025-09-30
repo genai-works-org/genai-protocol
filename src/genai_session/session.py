@@ -488,8 +488,9 @@ class GenAISession:
         # Send response back over WebSocket
         async with self._send_lock:
             try:
+                is_error = response.get("message_type") == WSMessageType.AGENT_ERROR.value
                 response = json.dumps(response)
-            except TypeError as e:
+            except (TypeError, ValueError) as e:
                 response = json.dumps({
                     "message_type": WSMessageType.AGENT_ERROR.value,
                     "execution_time": execution_time,
@@ -498,12 +499,16 @@ class GenAISession:
                         "error_message": str(e)
                     }
                 })
+                is_error = True
 
                 agent_context.logger.critical(traceback.format_exc())
                 self.logger.error("Failed to send response. Invalid data type.")
                 self.logger.error(e)
 
             await ws.send(response)
+
+            if is_error:
+                self._shutdown_event.set()
 
     @staticmethod
     def get_agent_logs(agent_context: GenAIContext, request_id: str) -> list[dict]:
