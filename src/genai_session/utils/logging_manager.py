@@ -2,6 +2,7 @@ import asyncio
 import json
 from collections import defaultdict
 from io import BytesIO
+from logging import Logger
 
 from websockets.asyncio.client import ClientConnection
 
@@ -21,6 +22,7 @@ class ContextLogger:
         agent_uuid: str,
         request_id: str,
         session_id: str,
+        internal_logger: Logger,
         websocket: ClientConnection = None,
         invoked_by: str = "",
     ):
@@ -40,6 +42,7 @@ class ContextLogger:
         self.session_id = session_id
         self.invoked_by = invoked_by
         self.pending_log_tasks = defaultdict(list)
+        self.internal_logger = internal_logger
 
     async def _message_logging(self, message: str | dict, log_level: str = "info"):
         """
@@ -111,6 +114,7 @@ class ContextLogger:
         Args:
             message (str | dict): The message to log.
         """
+        self.internal_logger.debug(message)
         self.pending_log_tasks[self.request_id].append(("debug", message))
 
     def info(self, message):
@@ -120,6 +124,7 @@ class ContextLogger:
         Args:
             message (str | dict): The message to log.
         """
+        self.internal_logger.info(message)
         self.pending_log_tasks[self.request_id].append(("info", message))
 
     def warning(self, message):
@@ -129,6 +134,7 @@ class ContextLogger:
         Args:
             message (str | dict): The message to log.
         """
+        self.internal_logger.warning(message)
         self.pending_log_tasks[self.request_id].append(("warning", message))
 
     def error(self, message):
@@ -138,6 +144,7 @@ class ContextLogger:
         Args:
             message (str | dict): The message to log.
         """
+        self.internal_logger.error(message)
         self.pending_log_tasks[self.request_id].append(("error", message))
 
     def critical(self, message):
@@ -147,6 +154,7 @@ class ContextLogger:
         Args:
             message (str | dict): The message to log.
         """
+        self.internal_logger.critical(message)
         self.pending_log_tasks[self.request_id].append(("critical", message))
 
     async def flush_logs(self):

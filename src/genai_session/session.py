@@ -306,6 +306,7 @@ class GenAISession:
             agent_uuid=agent_context.agent_uuid,
             request_id=agent_context.request_id,
             session_id=agent_context.session_id,
+            internal_logger=self.logger
         )
 
         async def wrapper():
@@ -426,7 +427,8 @@ class GenAISession:
             request_id=agent_context.request_id,
             session_id=agent_context.session_id,
             websocket=ws,
-            invoked_by=invoked_by
+            invoked_by=invoked_by,
+            internal_logger=self.logger,
         )
 
         agent_context.invoked_by = invoked_by
