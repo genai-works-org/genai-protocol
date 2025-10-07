@@ -489,12 +489,20 @@ class GenAISession:
         async with self._send_lock:
             try:
                 is_error = response.get("message_type") == WSMessageType.AGENT_ERROR.value
+                response["response_metadata"] = {
+                    "request_id": self.request_id,
+                    "session_id": self.session_id,
+                }
                 response = json.dumps(response)
             except (TypeError, ValueError) as e:
                 response = json.dumps({
                     "message_type": WSMessageType.AGENT_ERROR.value,
                     "execution_time": execution_time,
                     "invoked_by": invoked_by,
+                    "response_metadata": {
+                        "request_id": self.request_id,
+                        "session_id": self.session_id,
+                    },
                     "error": {
                         "error_message": str(e)
                     }
